@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إبلاغ عن حادث بالصوت</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            padding: 0;
+            background-color: #f9f9f9;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 16px;
+            color: #fff;
+            background-color: #007bff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        #visualizer {
+            width: 100%;
+            height: 100px;
+            background: #f1f1f1;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+
+        .output {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background: #f1f1f1;
+            text-align: left;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>إبلاغ عن حادث بالصوت</h1>
+        <p>اضغط على الزر أدناه وابدأ بالتحدث لتسجيل بلاغ. تظهر الموجات الصوتية أثناء التحدث.</p>
+        <button id="startRecording">ابدأ التسجيل</button>
+        <button id="sendReport" disabled>إرسال البلاغ</button>
+        <canvas id="visualizer"></canvas>
+        <div class="output" id="reportDetails">
+            <strong>تفاصيل البلاغ:</strong>
+            <p id="transcription">لم يتم تسجيل أي بلاغ حتى الآن.</p>
+            <p id="location">الموقع: غير محدد</p>
+        </div>
+    </div>
+
+    <script>
+        // التحقق من دعم التعرف على الصوت
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("المتصفح الخاص بك لا يدعم خاصية التعرف على الصوت.");
+        } else {
+            const recognition = new SpeechRecognition();
+            recognition.lang = "ar-SA"; // تعيين اللغة إلى العربية
+            recognition.interimResults = false;
+
+            const startButton = document.getElementById("startRecording");
+            const sendButton = document.getElementById("sendReport");
+            const transcriptionElement = document.getElementById("transcription");
+            const locationElement = document.getElementById("location");
+            const canvas = document.getElementById("visualizer");
+            const canvasContext = canvas.getContext("2d");
+
+            let reportText = "";
+            let detectedLocation = "";
+
+            let audioContext;
+            let analyser;
+            let dataArray;
+            let source;
+            let animationId;
+
+            // إعداد رسم الموجات الصوتية
+            const visualizeAudio = () => {
+                analyser.getByteTimeDomainData(dataArray);
+
+                canvasContext.fillStyle = "#f1f1f1";
+                canvasContext.fillRect(0, 0, canvas.width, canvas.height);
+
+                canvasContext.lineWidth = 2;
+                canvasContext.strokeStyle = "#007bff";
+
+                canvasContext.beginPath();
+
+                const sliceWidth = canvas.width / dataArray.length;
+                let x = 0;
+
+                for (let i = 0; i < dataArray.length; i++) {
+                    const v = dataArray[i] / 128.0;
+                    const y = (v * canvas.height) / 2;
+
+                    if (i === 0) {
+                        canvasContext.moveTo(x, y);
+                    } else {
+                        canvasContext.lineTo(x, y);
+                    }
+
+                    x += sliceWidth;
+                }
+
+                canvasContext.lineTo(canvas.width, canvas.height / 2);
+                canvasContext.stroke();
+
+                animationId = requestAnimationFrame(visualizeAudio);
+            };
+
+            // بدء التسجيل
+            startButton.addEventListener("click", async () => {
+                recognition.start();
+                transcriptionElement.textContent = "جاري الاستماع...";
+                startButton.disabled = true;
+
+                // إعداد AudioContext
+                try {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 2048;
+
+                    const bufferLength = analyser.frequencyBinCount;
+                    dataArray = new Uint8Array(bufferLength);
+
+                    source = audioContext.createMediaStreamSource(stream);
+                    source.connect(analyser);
+
+                    visualizeAudio();
+                } catch (error) {
+                    console.error("Error accessing microphone:", error);
+                    alert("تعذر الوصول إلى الميكروفون.");
+                }
+            });
+
+            // عند انتهاء التسجيل
+            recognition.addEventListener("result", async (event) => {
+                reportText = event.results[0][0].transcript;
+                transcriptionElement.textContent = reportText;
+                startButton.disabled = false;
+                sendButton.disabled = false;
+
+                // إيقاف رسم الموجات الصوتية
+                cancelAnimationFrame(animationId);
+                audioContext.close();
+
+                // تحليل النص للتعرف على الحي باستخدام خادم خلفي
+                try {
+                    const response = await fetch("/detect_location", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({ text: reportText }),
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        detectedLocation = data.location;
+                        const coordinates = data.coordinates;
+                        locationElement.textContent = `الموقع: ${detectedLocation} (${coordinates.lat}, ${coordinates.lon})`;
+                    } else {
+                        locationElement.textContent = "تعذر تحديد الموقع.";
+                    }
+                } catch (error) {
+                    console.error("Error detecting location:", error);
+                    locationElement.textContent = "حدث خطأ أثناء تحليل الموقع.";
+                }
+            });
+
+            recognition.addEventListener("end", () => {
+                if (!reportText) {
+                    transcriptionElement.textContent = "لم يتم تسجيل أي صوت. حاول مرة أخرى.";
+                    startButton.disabled = false;
+                }
+            });
+
+            // إرسال البلاغ إلى النظام الخلفي
+            sendButton.addEventListener("click", async () => {
+                if (!reportText || !detectedLocation) {
+                    alert("لا يوجد نص أو موقع لإرساله.");
+                    return;
+                }
+
+                try {
+                    const response = await fetch("/generate_accidents", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            report: reportText,
+                            location: detectedLocation,
+                            timestamp: new Date().toISOString(),
+                        }),
+                    });
+
+                    if (response.ok) {
+                        alert("تم إرسال البلاغ بنجاح إلى لوحة القيادة.");
+                        reportText = "";
+                        detectedLocation = "";
+                        transcriptionElement.textContent = "لم يتم تسجيل أي بلاغ حتى الآن.";
+                        locationElement.textContent = "الموقع: غير محدد";
+                        sendButton.disabled = true;
+                    } else {
+                        alert("حدث خطأ أثناء إرسال البلاغ. حاول مرة أخرى.");
+                    }
+                } catch (error) {
+                    console.error("Error sending report:", error);
+                    alert("تعذر الاتصال بالخادم. حاول مرة أخرى.");
+                }
+            });
+        }
+    </script>
+</body>
+
+</html>
