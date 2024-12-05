@@ -64,8 +64,7 @@
             gap: 10px;
         }
 
-        select,
-        button {
+        select, button {
             padding: 10px;
             font-size: 14px;
             border-radius: 4px;
@@ -89,8 +88,7 @@
             border-collapse: collapse;
         }
 
-        th,
-        td {
+        th, td {
             border: 1px solid #ddd;
             padding: 12px;
             text-align: left;
@@ -105,13 +103,8 @@
         }
 
         @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-
-            to {
-                opacity: 1;
-            }
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
 
         .total-info {
@@ -152,13 +145,34 @@
             font-size: 18px;
             text-align: center;
         }
+
+        .accident-notification {
+            position: fixed;
+            top: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #e74c3c;
+            color: white;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 18px;
+            z-index: 2000;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+
+        .accident-notification.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(20px);
+        }
     </style>
 </head>
 
 <body>
     <div class="dashboard">
         <header class="header">
-            <h1>Dispartcher</h1>
+            <h1>Dispatcher</h1>
             <div id="clock"></div>
         </header>
         <aside class="sidebar">
@@ -205,6 +219,7 @@
         </main>
     </div>
     <div id="notifications"></div>
+    <div id="accident-notification" class="accident-notification"></div>
 
     <script>
         const accidentSelect = document.getElementById("accident-select");
@@ -229,6 +244,7 @@
         let routeLine = null; // Line for the route
         let hospitals = []; // Store all hospitals
         let ambulanceCenters = []; // Store all ambulance centers
+        let lastAccidentCount = 0;
 
         function updateClock() {
             const now = new Date();
@@ -254,43 +270,64 @@
             }, 5000);
         }
 
+        function showAccidentNotification(count) {
+            const notificationElement = document.getElementById('accident-notification');
+            notificationElement.textContent = `${count} new accident${count > 1 ? 's' : ''} added!`;
+            notificationElement.classList.add('show');
+
+            setTimeout(() => {
+                notificationElement.classList.remove('show');
+            }, 5000);
+        }
+
+        function updateAccidentData(accidents) {
+            // Clear previous markers
+            accidentMarkers.forEach(marker => map.removeLayer(marker));
+            accidentMarkers.length = 0;
+
+            // Populate accident dropdown and table
+            accidentSelect.innerHTML = '<option value="">Select an accident</option>';
+            accidentTable.innerHTML = "";
+            accidents.forEach(accident => {
+                const option = document.createElement("option");
+                option.value = JSON.stringify(accident);
+                option.textContent = `Accident ${accident.id} - Severity: ${accident.severity}`;
+                accidentSelect.appendChild(option);
+
+                const row = `
+                    <tr>
+                        <td>${accident.id}</td>
+                        <td>${accident.name}</td>
+                        <td>${accident.phone}</td>
+                        <td>${accident.location.join(", ")}</td>
+                        <td>${accident.severity}</td>
+                        <td>${accident.nearest_hospital.center_name}</td>
+                        <td>${accident.nearest_ambulance.center_name}</td>
+                    </tr>
+                `;
+                accidentTable.innerHTML += row;
+
+                // Add marker to map
+                const marker = L.marker(accident.location).addTo(map);
+                marker.bindPopup(`Accident ${accident.id}<br>Severity: ${accident.severity}`);
+                accidentMarkers.push(marker);
+            });
+
+            // Check if new accidents were added
+            if (accidents.length > lastAccidentCount) {
+                const newAccidentCount = accidents.length - lastAccidentCount;
+                showAccidentNotification(newAccidentCount);
+            }
+            lastAccidentCount = accidents.length;
+
+            showNotification("Accident data updated");
+        }
+
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
 
-            if (data.type === "new_accidents") {
-                // Clear previous markers
-                accidentMarkers.forEach(marker => map.removeLayer(marker));
-                accidentMarkers.length = 0;
-
-                // Populate accident dropdown and table
-                accidentSelect.innerHTML = '<option value="">Select an accident</option>';
-                accidentTable.innerHTML = "";
-                data.data.forEach(accident => {
-                    const option = document.createElement("option");
-                    option.value = JSON.stringify(accident);
-                    option.textContent = `Accident ${accident.id} - Severity: ${accident.severity}`;
-                    accidentSelect.appendChild(option);
-
-                    const row = `
-                        <tr>
-                            <td>${accident.id}</td>
-                            <td>${accident.name}</td>
-                            <td>${accident.phone}</td>
-                            <td>${accident.location.join(", ")}</td>
-                            <td>${accident.severity}</td>
-                            <td>${accident.nearest_hospital.center_name}</td>
-                            <td>${accident.nearest_ambulance.center_name}</td>
-                        </tr>
-                    `;
-                    accidentTable.innerHTML += row;
-
-                    // Add marker to map
-                    const marker = L.marker(accident.location).addTo(map);
-                    marker.bindPopup(`Accident ${accident.id}<br>Severity: ${accident.severity}`);
-                    accidentMarkers.push(marker);
-                });
-
-                showNotification("New accidents data received");
+            if (data.type === "new_accidents" || data.type === "accident_update") {
+                updateAccidentData(data.data);
             } else if (data.type === "hospital_data") {
                 // Clear previous hospital markers
                 hospitalMarkers.forEach(marker => map.removeLayer(marker));

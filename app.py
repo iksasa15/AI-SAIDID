@@ -203,4 +203,31 @@ async def detect_location(request: Request):
     body = await request.json()
     text = body.get("text", "").strip()
     print(f"Received text: {text}")  # لتتبع النص المستلم
-    ...        
+    ...    
+@app.post("/send_report")
+async def send_report(request: Request):
+    body = await request.json()
+    location = body.get("location")
+    severity = body.get("severity")
+
+    # Generate a single accident at the reported location
+    coordinates = neighborhoods.get(location)
+    if coordinates:
+        accident = generate_random_accidents(
+            city_lat=coordinates[0],
+            city_lon=coordinates[1],
+            radius=0.1,
+            num_accidents=1
+        )[0]
+        accident["severity"] = severity
+
+        # Send the new accident to all connected ambulance dispatchers
+        for websocket in active_websockets:
+            await websocket.send_json({
+                "type": "new_accidents",
+                "data": [accident]
+            })
+
+        return JSONResponse(content={"message": "Report sent successfully"})
+    else:
+        return JSONResponse(content={"error": "Invalid location"}, status_code=400)        

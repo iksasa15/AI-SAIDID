@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Ambulance Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        /* ... (previous styles remain the same) ... */
+
+        #add-accident-form {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+
+        #add-accident-form h3 {
+            margin-top: 0;
+        }
+
+        #add-accident-form input,
+        #add-accident-form select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+
+        #add-accident-form button {
+            width: 100%;
+            padding: 10px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        #add-accident-form button:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard">
+        <!-- ... (previous HTML structure remains the same) ... -->
+        <aside class="sidebar">
+            <div class="select-container">
+                <h3>Select Accident</h3>
+                <select id="accident-select">
+                    <option value="">Select an accident</option>
+                </select>
+                <button id="calculate-route">Calculate Optimal Route</button>
+                <button id="add-accident-btn">Add Manual Accident</button>
+            </div>
+            <!-- ... (rest of the sidebar content) ... -->
+        </aside>
+        <!-- ... (rest of the HTML structure) ... -->
+    </div>
+    <div id="notifications"></div>
+    <div id="accident-notification" class="accident-notification"></div>
+
+    <div id="add-accident-form">
+        <h3>Add Manual Accident</h3>
+        <input type="text" id="accident-name" placeholder="Name">
+        <input type="tel" id="accident-phone" placeholder="Phone">
+        <input type="number" id="accident-lat" placeholder="Latitude" step="any">
+        <input type="number" id="accident-lon" placeholder="Longitude" step="any">
+        <select id="accident-severity">
+            <option value="Low">Low</option>
+            <option value="Medium">Medium</option>
+            <option value="High">High</option>
+        </select>
+        <button id="submit-accident">Submit</button>
+    </div>
+
+    <script>
+        // ... (previous JavaScript code remains the same) ...
+
+        const addAccidentBtn = document.getElementById("add-accident-btn");
+        const addAccidentForm = document.getElementById("add-accident-form");
+        const submitAccidentBtn = document.getElementById("submit-accident");
+
+        addAccidentBtn.addEventListener("click", () => {
+            addAccidentForm.style.display = "block";
+        });
+
+        submitAccidentBtn.addEventListener("click", () => {
+            const name = document.getElementById("accident-name").value;
+            const phone = document.getElementById("accident-phone").value;
+            const lat = parseFloat(document.getElementById("accident-lat").value);
+            const lon = parseFloat(document.getElementById("accident-lon").value);
+            const severity = document.getElementById("accident-severity").value;
+
+            if (!name || !phone || isNaN(lat) || isNaN(lon) || !severity) {
+                showNotification("Please fill all fields correctly");
+                return;
+            }
+
+            const manualAccident = {
+                id: Date.now(), // Use timestamp as a unique ID
+                name,
+                phone,
+                location: [lat, lon],
+                severity,
+                nearest_hospital: { center_name: "Unknown" },
+                nearest_ambulance: { center_name: "Unknown" }
+            };
+
+            // Send the manual accident to the server
+            ws.send(JSON.stringify({
+                type: "manual_accident",
+                data: manualAccident
+            }));
+
+            // Clear the form and hide it
+            addAccidentForm.style.display = "none";
+            document.getElementById("accident-name").value = "";
+            document.getElementById("accident-phone").value = "";
+            document.getElementById("accident-lat").value = "";
+            document.getElementById("accident-lon").value = "";
+            document.getElementById("accident-severity").value = "Low";
+
+            showNotification("Manual accident added successfully");
+        });
+
+        function updateAccidentData(accidents) {
+            // ... (previous updateAccidentData code remains the same) ...
+        }
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.type === "new_accidents" || data.type === "accident_update" || data.type === "manual_accident") {
+                updateAccidentData(data.data);
+            } else if (data.type === "hospital_data") {
+                // ... (previous hospital_data handling remains the same) ...
+            } else if (data.type === "ambulance_data") {
+                // ... (previous ambulance_data handling remains the same) ...
+            }
+        };
+
+         const accidentSelect = document.getElementById("accident-select");
+            const routeInfo = document.getElementById("route-info");
+            const totalInfo = document.getElementById("total-info");
+            const totalRouteInfo = document.getElementById("total-route-info");
+            const accidentTable = document.getElementById("accident-table");
+            const notificationsContainer = document.getElementById("notifications");
+            const clockElement = document.getElementById("clock");
+
+            const ws = new WebSocket(`ws://${location.host}/ws/ambulance`);
+
+            // Initialize Leaflet map
+            const map = L.map('map').setView([24.7136, 46.6753], 12); // Centered at Riyadh
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+            }).addTo(map);
+
+            const accidentMarkers = [];
+            const hospitalMarkers = [];
+            const ambulanceMarkers = [];
+            let routeLine = null; // Line for the route
+            let hospitals = []; // Store all hospitals
+            let ambulanceCenters = []; // Store all ambulance centers
+            let lastAccidentCount = 0;
+
+            function updateClock() {
+                const now = new Date();
+                clockElement.textContent = now.toLocaleTimeString();
+            }
+
+            setInterval(updateClock, 1000);
+            updateClock();
+
+            function showNotification(message) {
+                const notification = document.createElement('div');
+                notification.className = 'notification';
+                notification.textContent = message;
+                notificationsContainer.appendChild(notification);
+                setTimeout(() => {
+                    notification.classList.add('show');
+                }, 100);
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                    setTimeout(() => {
+                        notificationsContainer.removeChild(notification);
+                    }, 300);
+                }, 5000);
+            }
+
+            function showAccidentNotification(count) {
+                const notificationElement = document.getElementById('accident-notification');
+                notificationElement.textContent = `${count} new accident${count > 1 ? 's' : ''} added!`;
+                notificationElement.classList.add('show');
+
+                setTimeout(() => {
+                    notificationElement.classList.remove('show');
+                }, 5000);
+            }
+
+            function updateAccidentData(accidents) {
+                // Clear previous markers
+                accidentMarkers.forEach(marker => map.removeLayer(marker));
+                accidentMarkers.length = 0;
+
+                // Populate accident dropdown and table
+                accidentSelect.innerHTML = '<option value="">Select an accident</option>';
+                accidentTable.innerHTML = "";
+                accidents.forEach(accident => {
+                    const option = document.createElement("option");
+                    option.value = JSON.stringify(accident);
+                    option.textContent = `Accident ${accident.id} - Severity: ${accident.severity}`;
+                    accidentSelect.appendChild(option);
+
+                    const row = `
+                    <tr>
+                        <td>${accident.id}</td>
+                        <td>${accident.name}</td>
+                        <td>${accident.phone}</td>
+                        <td>${accident.location.join(", ")}</td>
+                        <td>${accident.severity}</td>
+                        <td>${accident.nearest_hospital.center_name}</td>
+                        <td>${accident.nearest_ambulance.center_name}</td>
+                    </tr>
+                `;
+                    accidentTable.innerHTML += row;
+
+                    // Add marker to map
+                    const marker = L.marker(accident.location).addTo(map);
+                    marker.bindPopup(`Accident ${accident.id}<br>Severity: ${accident.severity}`);
+                    accidentMarkers.push(marker);
+                });
+
+                // Check if new accidents were added
+                if (accidents.length > lastAccidentCount) {
+                    const newAccidentCount = accidents.length - lastAccidentCount;
+                    showAccidentNotification(newAccidentCount);
+                }
+                lastAccidentCount = accidents.length;
+
+                showNotification("Accident data updated");
+            }
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === "new_accidents" || data.type === "accident_update") {
+                    updateAccidentData(data.data);
+                } else if (data.type === "hospital_data") {
+                    // Clear previous hospital markers
+                    hospitalMarkers.forEach(marker => map.removeLayer(marker));
+                    hospitalMarkers.length = 0;
+
+                    // Store hospitals
+                    hospitals = data.hospitals;
+
+                    // Add hospital markers to map
+                    hospitals.forEach(hospital => {
+                        const marker = L.marker(hospital.location, { icon: L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', iconSize: [25, 25] }) }).addTo(map);
+                        marker.bindPopup(`Hospital: ${hospital.name}`);
+                        hospitalMarkers.push(marker);
+                    });
+
+                    showNotification("Hospital data updated");
+                } else if (data.type === "ambulance_data") {
+                    // Clear previous ambulance markers
+                    ambulanceMarkers.forEach(marker => map.removeLayer(marker));
+                    ambulanceMarkers.length = 0;
+
+                    // Store ambulance centers
+                    ambulanceCenters = data.ambulance_centers;
+
+                    // Add ambulance markers to map
+                    ambulanceCenters.forEach(center => {
+                        const marker = L.marker(center.location, { icon: L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/512/2212/2212112.png', iconSize: [25, 25] }) }).addTo(map);
+                        marker.bindPopup(`Ambulance Center: ${center.name}`);
+                        ambulanceMarkers.push(marker);
+                    });
+
+                    showNotification("Ambulance center data updated");
+                }
+            };
+
+            async function getRoute(start, end) {
+                const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson`);
+                const data = await response.json();
+                return data.routes[0];
+            }
+
+            function findNearestLocation(targetLocation, locations) {
+                let nearest = null;
+                let shortestDistance = Infinity;
+
+                locations.forEach(location => {
+                    const distance = L.latLng(targetLocation).distanceTo(L.latLng(location.location));
+                    if (distance < shortestDistance) {
+                        shortestDistance = distance;
+                        nearest = location;
+                    }
+                });
+
+                return nearest;
+            }
+
+            document.getElementById("calculate-route").addEventListener("click", async () => {
+                const accidentData = JSON.parse(accidentSelect.value || "{}");
+
+                if (!accidentData.location) {
+                    routeInfo.textContent = "Please select an accident.";
+                    totalInfo.textContent = "";
+                    totalRouteInfo.textContent = "";
+                    return;
+                }
+
+                try {
+                    const nearestHospital = findNearestLocation(accidentData.location, hospitals);
+                    const nearestAmbulance = findNearestLocation(accidentData.location, ambulanceCenters);
+
+                    if (!nearestHospital || !nearestAmbulance) {
+                        showNotification("Unable to find nearest hospital or ambulance center.");
+                        return;
+                    }
+
+                    // Get routes
+                    const ambulanceToAccidentRoute = await getRoute(nearestAmbulance.location, accidentData.location);
+                    const accidentToHospitalRoute = await getRoute(accidentData.location, nearestHospital.location);
+                    const hospitalToAmbulanceRoute = await getRoute(nearestHospital.location, nearestAmbulance.location);
+
+                    // Calculate distances
+                    const ambulanceToAccidentDistance = ambulanceToAccidentRoute.distance / 1000; // km
+                    const accidentToHospitalDistance = accidentToHospitalRoute.distance / 1000; // km
+                    const hospitalToAmbulanceDistance = hospitalToAmbulanceRoute.distance / 1000; // km
+
+                    // Calculate times (considering max speed of 120 km/h)
+                    const maxSpeedKmh = 120;
+                    const ambulanceToAccidentTime = (ambulanceToAccidentDistance / maxSpeedKmh) * 60; // minutes
+                    const accidentToHospitalTime = (accidentToHospitalDistance / maxSpeedKmh) * 60; // minutes
+                    const hospitalToAmbulanceTime = (hospitalToAmbulanceDistance / maxSpeedKmh) * 60; // minutes
+
+                    // Calculate total distance and time
+                    const totalDistance = ambulanceToAccidentDistance + accidentToHospitalDistance + hospitalToAmbulanceDistance;
+                    const totalTime = ambulanceToAccidentTime + accidentToHospitalTime + hospitalToAmbulanceTime;
+
+                    // Update route info
+                    routeInfo.innerHTML = `
+                    <strong>Nearest Hospital:</strong> ${nearestHospital.name}<br>
+                    <strong>Nearest Ambulance Center:</strong> ${nearestAmbulance.name}<br><br>
+                    <strong>Ambulance to Accident:</strong><br>
+                    Distance: ${ambulanceToAccidentDistance.toFixed(2)} km<br>
+                    Estimated Time: ${ambulanceToAccidentTime.toFixed(2)} minutes<br><br>
+                    
+                    <strong>Accident to Hospital:</strong><br>
+                    Distance: ${accidentToHospitalDistance.toFixed(2)} km<br>
+                    Estimated Time: ${accidentToHospitalTime.toFixed(2)} minutes<br><br>
+                    
+                    <strong>Hospital to Ambulance Center:</strong><br>
+                    Distance: ${hospitalToAmbulanceDistance.toFixed(2)} km<br>
+                    Estimated Time: ${hospitalToAmbulanceTime.toFixed(2)} minutes<br><br>
+                `;
+
+                    totalInfo.innerHTML = `
+                    <strong>Total Distance:</strong> ${totalDistance.toFixed(2)} km<br>
+                    <strong>Total Estimated Time:</strong> ${totalTime.toFixed(2)} minutes
+                `;
+
+                    totalRouteInfo.innerHTML = `
+                    <strong>Total Route Summary:</strong><br>
+                    Distance: ${totalDistance.toFixed(2)} km<br>
+                    Estimated Time: ${totalTime.toFixed(2)} minutes
+                `;
+
+                    // Draw route on map
+                    if (routeLine) {
+                        map.removeLayer(routeLine);
+                    }
+                    const fullRoute = {
+                        type: "Feature",
+                        properties: {},
+                        geometry: {
+                            type: "LineString",
+                            coordinates: [
+                                ...ambulanceToAccidentRoute.geometry.coordinates,
+                                ...accidentToHospitalRoute.geometry.coordinates,
+                                ...hospitalToAmbulanceRoute.geometry.coordinates
+                            ]
+                        }
+                    };
+                    routeLine = L.geoJSON(fullRoute, { style: { color: 'blue', weight: 5 } }).addTo(map);
+                    map.fitBounds(routeLine.getBounds());
+
+                    showNotification("Optimal route calculated successfully");
+                } catch (error) {
+                    console.error("Error calculating route:", error);
+                    showNotification("Error calculating route. Please try again.");
+                }
+            });
+        </script>
+</body>
+
+</html>

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,11 +14,13 @@
             padding: 0;
             background-color: #f9f9f9;
         }
+
         #dashboard {
             display: flex;
             flex-direction: row;
             height: 100vh;
         }
+
         #sidebar {
             width: 25%;
             background-color: #fff;
@@ -25,6 +28,7 @@
             box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
             overflow-y: auto;
         }
+
         #records-sidebar {
             width: 25%;
             background-color: #fff;
@@ -32,10 +36,12 @@
             box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);
             overflow-y: auto;
         }
+
         #map-container {
             flex: 1;
             position: relative;
         }
+
         #map {
             position: absolute;
             top: 0;
@@ -43,11 +49,13 @@
             left: 0;
             right: 0;
         }
+
         h1 {
             text-align: center;
             font-size: 24px;
             color: #333;
         }
+
         button {
             width: 100%;
             margin: 10px 0;
@@ -60,10 +68,13 @@
             cursor: pointer;
             transition: background-color 0.3s ease;
         }
+
         button:hover {
             background-color: #005a9e;
         }
-        input {
+
+        input,
+        select {
             width: 100%;
             margin: 10px 0;
             padding: 10px;
@@ -72,13 +83,20 @@
             border-radius: 5px;
             transition: border-color 0.3s ease;
         }
-        input:focus {
+
+        input:focus,
+        select:focus {
             border-color: #0078d7;
             outline: none;
         }
-        #accident-list, #hospital-list, #ambulance-list, #record-list {
+
+        #accident-list,
+        #hospital-list,
+        #ambulance-list,
+        #record-list {
             margin-top: 20px;
         }
+
         .item {
             background: #f4f4f4;
             padding: 10px;
@@ -87,49 +105,70 @@
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
             transition: transform 0.3s ease;
         }
+
         .item:hover {
             transform: translateY(-2px);
         }
+
         .stats-bar {
             display: flex;
             justify-content: space-around;
             margin-top: 10px;
         }
+
         .stats-bar div {
             text-align: center;
             font-size: 14px;
             padding: 5px;
             transition: transform 0.3s ease;
         }
+
         .stats-bar div:hover {
             transform: scale(1.05);
         }
+
         .critical-bar {
             background: #d9534f;
             color: white;
             border-radius: 5px;
         }
+
         .moderate-bar {
             background: #f0ad4e;
             color: white;
             border-radius: 5px;
         }
+
         .minor-bar {
             background: #5bc0de;
             color: white;
             border-radius: 5px;
         }
+
+        #add-accident-form {
+            display: none;
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
     </style>
 </head>
+
 <body>
     <div id="dashboard">
         <div id="sidebar">
             <h1>AI-Powered Medical Resource Allocation System</h1>
             <input id="num-accidents" type="number" placeholder="Enter number of accidents" min="1" />
             <button id="generate">Generate Accidents</button>
+            <button id="add-accident">Add Accident from Map</button>
             <div id="accident-list">
                 <h2>Accidents</h2>
-                <p>Enter a number and click generate to view accidents.</p>
+                <p>Enter a number and click generate to view accidents, or add an accident from the map.</p>
             </div>
             <div id="hospital-list">
                 <h2>Hospitals</h2>
@@ -143,6 +182,19 @@
         <div id="map-container">
             <div id="map"></div>
             <div id="stats"></div>
+            <div id="add-accident-form">
+                <h2>Add Accident</h2>
+                <input id="accident-name" type="text" placeholder="Name" required>
+                <input id="accident-phone" type="tel" placeholder="Phone" required>
+                <select id="accident-severity" required>
+                    <option value="">Select Severity</option>
+                    <option value="critical">Critical</option>
+                    <option value="moderate">Moderate</option>
+                    <option value="minor">Minor</option>
+                </select>
+                <button id="submit-accident">Submit</button>
+                <button id="cancel-accident">Cancel</button>
+            </div>
         </div>
         <div id="records-sidebar">
             <h1>Records</h1>
@@ -153,7 +205,7 @@
         </div>
     </div>
     <script>
-        const azureMapsKey = "YOUR_AZURE_MAPS_KEY";
+        const azureMapsKey = "EhynrMtA8pj0RRMTUM1sVUShVnHxzgtRqSuGJRepMMp2QUJdBSdWJQQJ99ALACYeBjFjrAPMAAAgAZMP3wxR";
 
         let map = new atlas.Map('map', {
             center: [46.6753, 24.7136], // Riyadh center
@@ -167,8 +219,29 @@
         let accidentMarkers = [];
         let hospitalMarkers = [];
         let ambulanceMarkers = [];
+        let accidents = [];
+        let hospitals = [];
+        let ambulance_centers = [];
+        let newAccidentLocation = null;
 
-        document.getElementById("generate").addEventListener("click", async () => {
+        document.getElementById("generate").addEventListener("click", generateAccidents);
+        document.getElementById("add-accident").addEventListener("click", startAddAccident);
+        document.getElementById("submit-accident").addEventListener("click", submitAccident);
+        document.getElementById("cancel-accident").addEventListener("click", cancelAddAccident);
+
+        map.events.add('click', function (e) {
+            if (document.getElementById("add-accident-form").style.display === "block") {
+                newAccidentLocation = e.position;
+                map.markers.clear();
+                const marker = new atlas.HtmlMarker({
+                    position: newAccidentLocation,
+                    color: 'red'
+                });
+                map.markers.add(marker);
+            }
+        });
+
+        async function generateAccidents() {
             const numAccidents = document.getElementById("num-accidents").value || 10;
 
             const response = await fetch("/generate_accidents", {
@@ -178,18 +251,133 @@
             });
 
             const data = await response.json();
-            const { accidents, hospitals, ambulance_centers } = data;
+            accidents = data.accidents;
+            hospitals = data.hospitals;
+            ambulance_centers = data.ambulance_centers;
 
-            // Clear markers from the map
-            accidentMarkers.forEach(marker => map.markers.remove(marker));
-            hospitalMarkers.forEach(marker => map.markers.remove(marker));
-            ambulanceMarkers.forEach(marker => map.markers.remove(marker));
+            updateMap();
+            updateLists();
+            updateStats();
+        }
 
-            accidentMarkers = [];
-            hospitalMarkers = [];
-            ambulanceMarkers = [];
+        function startAddAccident() {
+            document.getElementById("add-accident-form").style.display = "block";
+            map.markers.clear();
+        }
 
-            // Update stats
+        function cancelAddAccident() {
+            document.getElementById("add-accident-form").style.display = "none";
+            newAccidentLocation = null;
+            map.markers.clear();
+            updateMap();
+        }
+
+        function submitAccident() {
+            if (!newAccidentLocation) {
+                alert("Please select a location on the map.");
+                return;
+            }
+
+            const name = document.getElementById("accident-name").value;
+            const phone = document.getElementById("accident-phone").value;
+            const severity = document.getElementById("accident-severity").value;
+
+            if (!name || !phone || !severity) {
+                alert("Please fill in all fields.");
+                return;
+            }
+
+            const newAccident = {
+                id: accidents.length + 1,
+                name,
+                phone,
+                severity,
+                location: [newAccidentLocation[1], newAccidentLocation[0]]
+            };
+
+            accidents.push(newAccident);
+            document.getElementById("add-accident-form").style.display = "none";
+            newAccidentLocation = null;
+
+            updateMap();
+            updateLists();
+            updateStats();
+        }
+
+        function updateMap() {
+            map.markers.clear();
+
+            accidents.forEach(({ location, severity, id }) => {
+                const markerColor = severity === "critical" ? "red" : severity === "moderate" ? "orange" : "blue";
+                const marker = new atlas.HtmlMarker({
+                    position: [location[1], location[0]],
+                    color: markerColor,
+                    text: severity === "critical" ? "❗" : "⚠️"
+                });
+                map.markers.add(marker);
+                accidentMarkers.push({ id, marker });
+            });
+
+            hospitals.forEach(({ location }) => {
+                const marker = new atlas.HtmlMarker({
+                    position: [location[1], location[0]],
+                    color: "green",
+                    text: "🏥"
+                });
+                map.markers.add(marker);
+                hospitalMarkers.push(marker);
+            });
+
+            ambulance_centers.forEach(({ location }) => {
+                const marker = new atlas.HtmlMarker({
+                    position: [location[1], location[0]],
+                    color: "yellow",
+                    text: "🚑"
+                });
+                map.markers.add(marker);
+                ambulanceMarkers.push(marker);
+            });
+        }
+
+        function updateLists() {
+            const accidentList = document.getElementById("accident-list");
+            accidentList.innerHTML = "<h2>Accidents</h2>" + accidents
+                .map(accident => `
+                    <div class="item" data-id="${accident.id}">
+                        <strong>Name:</strong> ${accident.name}<br>
+                        <strong>Phone:</strong> ${accident.phone}<br>
+                        <strong>Severity:</strong> ${accident.severity}<br>
+                        <button class="respond">Respond</button>
+                    </div>
+                `).join("");
+
+            const hospitalList = document.getElementById("hospital-list");
+            hospitalList.innerHTML = "<h2>Hospitals</h2>" + hospitals
+                .map(hospital => `
+                    <div class="item">
+                        <strong>Name:</strong> ${hospital.name}<br>
+                        <strong>Capacity:</strong> ${hospital.capacity}<br>
+                    </div>
+                `).join("");
+
+            const ambulanceList = document.getElementById("ambulance-list");
+            ambulanceList.innerHTML = "<h2>Ambulance Centers</h2>" + ambulance_centers
+                .map(ambulance => `
+                    <div class="item">
+                        <strong>Name:</strong> ${ambulance.name}<br>
+                        <strong>Available Units:</strong> ${ambulance.available_units}<br>
+                    </div>
+                `).join("");
+
+            document.querySelectorAll(".respond").forEach(button => {
+                button.addEventListener("click", (e) => {
+                    const accidentId = parseInt(e.target.closest(".item").dataset.id);
+                    handleResponse(accidentId);
+                });
+            });
+        }
+
+        function updateStats() {
             const statsElement = document.getElementById("stats");
             const criticalCount = accidents.filter(acc => acc.severity === "critical").length;
             const moderateCount = accidents.filter(acc => acc.severity === "moderate").length;
@@ -202,78 +390,7 @@
                     <div class="minor-bar">Minor: ${minorCount}</div>
                 </div>
             `;
-
-            // Update accident list
-            const accidentList = document.getElementById("accident-list");
-            accidentList.innerHTML = "<h2>Accidents</h2>" + accidents
-                .map(accident => `
-                    <div class="item" data-id="${accident.id}">
-                        <strong>Name:</strong> ${accident.name}<br>
-                        <strong>Phone:</strong> ${accident.phone}<br>
-                        <strong>Severity:</strong> ${accident.severity}<br>
-                        <button class="respond">Respond</button>
-                    </div>
-                `).join("");
-
-            // Add accident markers to map
-            accidents.forEach(({ location, severity, id }) => {
-                const markerColor = severity === "critical" ? "red" : severity === "moderate" ? "orange" : "blue";
-                const marker = new atlas.HtmlMarker({
-                    position: [location[1], location[0]],
-                    color: markerColor,
-                    text: severity === "critical" ? "❗" : "⚠️"
-                });
-                map.markers.add(marker);
-                accidentMarkers.push({ id, marker });
-            });
-
-            // Add hospital markers to map
-            const hospitalList = document.getElementById("hospital-list");
-            hospitalList.innerHTML = "<h2>Hospitals</h2>" + hospitals
-                .map(hospital => `
-                    <div class="item">
-                        <strong>Name:</strong> ${hospital.name}<br>
-                        <strong>Capacity:</strong> ${hospital.capacity}<br>
-                    </div>
-                `).join("");
-
-            hospitals.forEach(({ location, name }) => {
-                const marker = new atlas.HtmlMarker({
-                    position: [location[1], location[0]],
-                    color: "green",
-                    text: "🏥"
-                });
-                map.markers.add(marker);
-                hospitalMarkers.push(marker);
-            });
-
-            // Add ambulance markers to map
-            const ambulanceList = document.getElementById("ambulance-list");
-            ambulanceList.innerHTML = "<h2>Ambulance Centers</h2>" + ambulance_centers
-                .map(ambulance => `
-                    <div class="item">
-                        <strong>Name:</strong> ${ambulance.name}<br>
-                        <strong>Available Units:</strong> ${ambulance.available_units}<br>
-                    </div>
-                `).join("");
-
-            ambulance_centers.forEach(({ location, name }) => {
-                const marker = new atlas.HtmlMarker({
-                    position: [location[1], location[0]],
-                    color: "yellow",
-                    text: "🚑"
-                });
-                map.markers.add(marker);
-                ambulanceMarkers.push(marker);
-            });
-
-            document.querySelectorAll(".respond").forEach(button => {
-                button.addEventListener("click", (e) => {
-                    const accidentId = parseInt(e.target.closest(".item").dataset.id);
-                    handleResponse(accidentId);
-                });
-            });
-        });
+        }
 
         function handleResponse(accidentId) {
             const accidentElement = document.querySelector(`.item[data-id="${accidentId}"]`);
@@ -283,12 +400,11 @@
             recordList.innerHTML += `<div class="item">${accidentElement.innerHTML}</div>`;
             accidentElement.remove();
 
-            const markerIndex = accidentMarkers.findIndex(m => m.id === accidentId);
-            if (markerIndex !== -1) {
-                map.markers.remove(accidentMarkers[markerIndex].marker);
-                accidentMarkers.splice(markerIndex, 1);
-            }
+            accidents = accidents.filter(accident => accident.id !== accidentId);
+            updateMap();
+            updateStats();
         }
     </script>
 </body>
+
 </html>

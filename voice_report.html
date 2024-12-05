@@ -4,7 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>إبلاغ عن حادث بالصوت</title>
+    <title>مركز الاتصال للإبلاغ عن حادث</title>
+    <script src="https://atlas.microsoft.com/sdk/javascript/mapcontrol/2/atlas.min.js"></script>
+    <link rel="stylesheet" href="https://atlas.microsoft.com/sdk/javascript/mapcontrol/2/atlas.min.css" type="text/css">
+    <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -27,28 +30,39 @@
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
 
-        button {
+        button,
+        input[type="text"],
+        textarea {
             padding: 10px 20px;
             margin: 10px;
             font-size: 16px;
+            border-radius: 5px;
+        }
+
+        button {
             color: #fff;
             background-color: #007bff;
             border: none;
-            border-radius: 5px;
             cursor: pointer;
+            transition: background-color 0.3s;
         }
 
         button:hover {
             background-color: #0056b3;
         }
 
-        #visualizer {
+        input[type="text"],
+        textarea {
+            width: calc(100% - 40px);
+            border: 1px solid #ccc;
+        }
+
+        #map {
+            height: 300px;
             width: 100%;
-            height: 100px;
-            background: #f1f1f1;
+            margin-top: 20px;
             border: 1px solid #ccc;
             border-radius: 5px;
-            margin-top: 20px;
         }
 
         .output {
@@ -59,187 +73,475 @@
             background: #f1f1f1;
             text-align: left;
         }
+
+        #recordButton {
+            background-color: #28a745;
+        }
+
+        #recordButton:hover {
+            background-color: #218838;
+        }
+
+        #recordButton.recording {
+            background-color: #dc3545;
+        }
+
+        #recordButton.recording:hover {
+            background-color: #c82333;
+        }
+
+        #conversation {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background: #fff;
+            text-align: left;
+        }
+
+        .user-message {
+            color: #007bff;
+        }
+
+        .assistant-message {
+            color: #28a745;
+        }
+
+        #errorMessage {
+            color: #dc3545;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        #chatInput {
+            display: none;
+        }
+
+        .tab-button {
+            background-color: #f1f1f1;
+            border: 1px solid #ccc;
+            color: black;
+            padding: 10px 20px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .tab-button.active {
+            background-color: #007bff;
+            color: white;
+        }
     </style>
 </head>
 
 <body>
     <div class="container">
-        <h1>إبلاغ عن حادث بالصوت</h1>
-        <p>اضغط على الزر أدناه وابدأ بالتحدث لتسجيل بلاغ. تظهر الموجات الصوتية أثناء التحدث.</p>
-        <button id="startRecording">ابدأ التسجيل</button>
+        <h1>مركز الاتصال للإبلاغ عن حادث</h1>
+        <input type="text" id="apiKeyInput" placeholder="أدخل مفتاح API الخاص بك هنا" />
+        <input type="text" id="azureMapKeyInput" placeholder="أدخل مفتاح Azure Maps هنا" />
+        <input type="text" id="azureSpeechKeyInput" placeholder="أدخل مفتاح Azure Speech هنا" />
+        <input type="text" id="azureSpeechRegionInput" placeholder="أدخل منطقة Azure Speech هنا" />
+        <div>
+            <button class="tab-button active" id="voiceTab">صوت</button>
+            <button class="tab-button" id="chatTab">محادثة</button>
+        </div>
+        <div id="voiceInput">
+            <p>انقر على زر التسجيل للتحدث مع مركز الاتصال.</p>
+            <button id="recordButton">بدء المكالمة</button>
+        </div>
+        <div id="chatInput" style="display: none;">
+            <textarea id="messageInput" placeholder="اكتب رسالتك هنا" rows="3"></textarea>
+            <button id="sendMessage">إرسال</button>
+        </div>
+        <div id="errorMessage"></div>
+        <div id="map"></div>
+        <div id="conversation"></div>
         <button id="sendReport" disabled>إرسال البلاغ</button>
-        <canvas id="visualizer"></canvas>
         <div class="output" id="reportDetails">
             <strong>تفاصيل البلاغ:</strong>
-            <p id="transcription">لم يتم تسجيل أي بلاغ حتى الآن.</p>
             <p id="location">الموقع: غير محدد</p>
+            <p id="severity">خطورة الحادث: غير محددة</p>
         </div>
     </div>
 
     <script>
-        // التحقق من دعم التعرف على الصوت
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            alert("المتصفح الخاص بك لا يدعم خاصية التعرف على الصوت.");
-        } else {
-            const recognition = new SpeechRecognition();
-            recognition.lang = "ar-SA"; // تعيين اللغة إلى العربية
-            recognition.interimResults = false;
+        const recordButton = document.getElementById("recordButton");
+        const sendButton = document.getElementById("sendReport");
+        const locationElement = document.getElementById("location");
+        const severityElement = document.getElementById("severity");
+        const conversationElement = document.getElementById("conversation");
+        const errorMessageElement = document.getElementById("errorMessage");
+        const apiKeyInput = document.getElementById("apiKeyInput");
+        const azureMapKeyInput = document.getElementById("azureMapKeyInput");
+        const azureSpeechKeyInput = document.getElementById("azureSpeechKeyInput");
+        const azureSpeechRegionInput = document.getElementById("azureSpeechRegionInput");
+        const voiceTab = document.getElementById("voiceTab");
+        const chatTab = document.getElementById("chatTab");
+        const voiceInput = document.getElementById("voiceInput");
+        const chatInput = document.getElementById("chatInput");
+        const messageInput = document.getElementById("messageInput");
+        const sendMessageButton = document.getElementById("sendMessage");
 
-            const startButton = document.getElementById("startRecording");
-            const sendButton = document.getElementById("sendReport");
-            const transcriptionElement = document.getElementById("transcription");
-            const locationElement = document.getElementById("location");
-            const canvas = document.getElementById("visualizer");
-            const canvasContext = canvas.getContext("2d");
+        let detectedLocation = "";
+        let accidentSeverity = "";
+        let selectedCoordinates = null;
+        let isRecording = false;
+        let conversationHistory = [
+            { role: "system", content: "أنت موظف في مركز اتصال للإبلاغ عن الحوادث في الرياض. مهمتك هي الرد على المتصل بلطف، وجمع معلومات عن موقع الحادث وخطورته، ثم تحديد الحي أو المنطقة بدقة. استخدم لهجة رسمية ومهنية. اطلب من المتصل تحديد موقع الحادث وخطورته." }
+        ];
 
-            let reportText = "";
-            let detectedLocation = "";
+        let map, marker;
+        let recognizer;
 
-            let audioContext;
-            let analyser;
-            let dataArray;
-            let source;
-            let animationId;
+        function initMap() {
+            const azureMapKey = azureMapKeyInput.value.trim();
+            if (!azureMapKey) {
+                displayErrorMessage('يرجى إدخال مفتاح Azure Maps أولاً.');
+                return;
+            }
 
-            // إعداد رسم الموجات الصوتية
-            const visualizeAudio = () => {
-                analyser.getByteTimeDomainData(dataArray);
-
-                canvasContext.fillStyle = "#f1f1f1";
-                canvasContext.fillRect(0, 0, canvas.width, canvas.height);
-
-                canvasContext.lineWidth = 2;
-                canvasContext.strokeStyle = "#007bff";
-
-                canvasContext.beginPath();
-
-                const sliceWidth = canvas.width / dataArray.length;
-                let x = 0;
-
-                for (let i = 0; i < dataArray.length; i++) {
-                    const v = dataArray[i] / 128.0;
-                    const y = (v * canvas.height) / 2;
-
-                    if (i === 0) {
-                        canvasContext.moveTo(x, y);
-                    } else {
-                        canvasContext.lineTo(x, y);
-                    }
-
-                    x += sliceWidth;
-                }
-
-                canvasContext.lineTo(canvas.width, canvas.height / 2);
-                canvasContext.stroke();
-
-                animationId = requestAnimationFrame(visualizeAudio);
-            };
-
-            // بدء التسجيل
-            startButton.addEventListener("click", async () => {
-                recognition.start();
-                transcriptionElement.textContent = "جاري الاستماع...";
-                startButton.disabled = true;
-
-                // إعداد AudioContext
-                try {
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    analyser = audioContext.createAnalyser();
-                    analyser.fftSize = 2048;
-
-                    const bufferLength = analyser.frequencyBinCount;
-                    dataArray = new Uint8Array(bufferLength);
-
-                    source = audioContext.createMediaStreamSource(stream);
-                    source.connect(analyser);
-
-                    visualizeAudio();
-                } catch (error) {
-                    console.error("Error accessing microphone:", error);
-                    alert("تعذر الوصول إلى الميكروفون.");
+            map = new atlas.Map('map', {
+                center: [46.6753, 24.7136],
+                zoom: 11,
+                language: 'ar-SA',
+                authOptions: {
+                    authType: 'subscriptionKey',
+                    subscriptionKey: azureMapKey
                 }
             });
 
-            // عند انتهاء التسجيل
-            recognition.addEventListener("result", async (event) => {
-                reportText = event.results[0][0].transcript;
-                transcriptionElement.textContent = reportText;
-                startButton.disabled = false;
-                sendButton.disabled = false;
-
-                // إيقاف رسم الموجات الصوتية
-                cancelAnimationFrame(animationId);
-                audioContext.close();
-
-                // تحليل النص للتعرف على الحي باستخدام خادم خلفي
-                try {
-                    const response = await fetch("/detect_location", {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({ text: reportText }),
-                    });
-
-                    if (response.ok) {
-                        const data = await response.json();
-                        detectedLocation = data.location;
-                        const coordinates = data.coordinates;
-                        locationElement.textContent = `الموقع: ${detectedLocation} (${coordinates.lat}, ${coordinates.lon})`;
-                    } else {
-                        locationElement.textContent = "تعذر تحديد الموقع.";
-                    }
-                } catch (error) {
-                    console.error("Error detecting location:", error);
-                    locationElement.textContent = "حدث خطأ أثناء تحليل الموقع.";
-                }
-            });
-
-            recognition.addEventListener("end", () => {
-                if (!reportText) {
-                    transcriptionElement.textContent = "لم يتم تسجيل أي صوت. حاول مرة أخرى.";
-                    startButton.disabled = false;
-                }
-            });
-
-            // إرسال البلاغ إلى النظام الخلفي
-            sendButton.addEventListener("click", async () => {
-                if (!reportText || !detectedLocation) {
-                    alert("لا يوجد نص أو موقع لإرساله.");
-                    return;
-                }
-
-                try {
-                    const response = await fetch("/generate_accidents", {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
-                            report: reportText,
-                            location: detectedLocation,
-                            timestamp: new Date().toISOString(),
-                        }),
-                    });
-
-                    if (response.ok) {
-                        alert("تم إرسال البلاغ بنجاح إلى لوحة القيادة.");
-                        reportText = "";
-                        detectedLocation = "";
-                        transcriptionElement.textContent = "لم يتم تسجيل أي بلاغ حتى الآن.";
-                        locationElement.textContent = "الموقع: غير محدد";
-                        sendButton.disabled = true;
-                    } else {
-                        alert("حدث خطأ أثناء إرسال البلاغ. حاول مرة أخرى.");
-                    }
-                } catch (error) {
-                    console.error("Error sending report:", error);
-                    alert("تعذر الاتصال بالخادم. حاول مرة أخرى.");
-                }
+            map.events.add('ready', function () {
+                marker = new atlas.HtmlMarker({
+                    color: 'DodgerBlue',
+                    text: '15'
+                });
+                map.markers.add(marker);
+                marker.setOptions({
+                    visible: false
+                });
             });
         }
+
+        function initSpeechRecognizer() {
+            const speechKey = azureSpeechKeyInput.value.trim();
+            const speechRegion = azureSpeechRegionInput.value.trim();
+
+            if (!speechKey || !speechRegion) {
+                displayErrorMessage('يرجى إدخال مفتاح Azure Speech والمنطقة أولاً.');
+                return;
+            }
+
+            const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(speechKey, speechRegion);
+            speechConfig.speechRecognitionLanguage = "ar-SA";
+
+            const audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+            recognizer = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
+
+            recognizer.recognizing = (s, e) => {
+                console.log(`RECOGNIZING: Text=${e.result.text}`);
+            };
+
+            recognizer.recognized = (s, e) => {
+                if (e.result.reason == SpeechSDK.ResultReason.RecognizedSpeech) {
+                    console.log(`RECOGNIZED: Text=${e.result.text}`);
+                    processVoiceInput(e.result.text);
+                }
+                else if (e.result.reason == SpeechSDK.ResultReason.NoMatch) {
+                    console.log("NOMATCH: Speech could not be recognized.");
+                }
+            };
+
+            recognizer.canceled = (s, e) => {
+                console.log(`CANCELED: Reason=${e.reason}`);
+                if (e.reason == SpeechSDK.CancellationReason.Error) {
+                    console.log(`CANCELED: ErrorCode=${e.errorCode}`);
+                    console.log(`CANCELED: ErrorDetails=${e.errorDetails}`);
+                    console.log("CANCELED: Did you update the subscription info?");
+                }
+                stopRecording();
+            };
+
+            recognizer.sessionStopped = (s, e) => {
+                console.log("\n    Session stopped event.");
+                stopRecording();
+            };
+        }
+
+        recordButton.addEventListener("click", toggleRecording);
+        voiceTab.addEventListener("click", () => switchTab('voice'));
+        chatTab.addEventListener("click", () => switchTab('chat'));
+        sendMessageButton.addEventListener("click", sendChatMessage);
+        azureMapKeyInput.addEventListener("change", initMap);
+        azureSpeechKeyInput.addEventListener("change", initSpeechRecognizer);
+        azureSpeechRegionInput.addEventListener("change", initSpeechRecognizer);
+
+        function switchTab(tab) {
+            if (tab === 'voice') {
+                voiceTab.classList.add('active');
+                chatTab.classList.remove('active');
+                voiceInput.style.display = 'block';
+                chatInput.style.display = 'none';
+            } else {
+                voiceTab.classList.remove('active');
+                chatTab.classList.add('active');
+                voiceInput.style.display = 'none';
+                chatInput.style.display = 'block';
+            }
+        }
+
+        function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        }
+
+        function startRecording() {
+            if (!apiKeyInput.value.trim()) {
+                displayErrorMessage('يرجى إدخال مفتاح API أولاً.');
+                return;
+            }
+            if (!azureMapKeyInput.value.trim()) {
+                displayErrorMessage('يرجى إدخال مفتاح Azure Maps أولاً.');
+                return;
+            }
+            if (!azureSpeechKeyInput.value.trim() || !azureSpeechRegionInput.value.trim()) {
+                displayErrorMessage('يرجى إدخال مفتاح Azure Speech والمنطقة أولاً.');
+                return;
+            }
+            try {
+                recognizer.startContinuousRecognitionAsync();
+                isRecording = true;
+                recordButton.textContent = "إنهاء المكالمة";
+                recordButton.classList.add("recording");
+                conversationHistory = [
+                    { role: "system", content: "أنت موظف في مركز اتصال للإبلاغ عن الحوادث في الرياض. مهمتك هي الرد على المتصل بلطف، وجمع معلومات عن موقع الحادث وخطورته، ثم تحديد الحي أو المنطقة بدقة. استخدم لهجة رسمية ومهنية. اطلب من المتصل تحديد موقع الحادث وخطورته." }
+                ];
+                conversationElement.innerHTML = '';
+                clearErrorMessage();
+                processVoiceInput("مرحبا");
+            } catch (error) {
+                console.error("Error starting recording:", error);
+                displayErrorMessage('حدث خطأ أثناء بدء التسجيل. حاول مرة أخرى.');
+            }
+        }
+
+        function stopRecording() {
+            try {
+                recognizer.stopContinuousRecognitionAsync();
+                isRecording = false;
+                recordButton.textContent = "بدء المكالمة";
+                recordButton.classList.remove("recording");
+            } catch (error) {
+                console.error("Error stopping recording:", error);
+                displayErrorMessage('حدث خطأ أثناء إيقاف التسجيل. حاول مرة أخرى.');
+            }
+        }
+
+        async function processVoiceInput(transcript) {
+            try {
+                conversationHistory.push({ role: "user", content: transcript });
+
+                const response = await fetch("https://api.openai.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${apiKeyInput.value.trim()}`
+                    },
+                    body: JSON.stringify({
+                        model: "gpt-3.5-turbo",
+                        messages: conversationHistory
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const aiResponse = data.choices[0].message.content;
+
+                addMessageToConversation('assistant', aiResponse);
+                conversationHistory.push({ role: "assistant", content: aiResponse });
+
+                speakResponse(aiResponse);
+
+                const extractedInfo = await extractLocationAndSeverity(conversationHistory);
+                if (extractedInfo) {
+                    updateMap(extractedInfo.lat, extractedInfo.lon);
+                    detectedLocation = extractedInfo.name;
+                    accidentSeverity = extractedInfo.severity;
+                    locationElement.textContent = `الموقع المحدد: ${extractedInfo.name}`;
+                    severityElement.textContent = `خطورة الحادث: ${extractedInfo.severity}`;
+                    sendButton.disabled = false;
+                }
+            } catch (error) {
+                console.error("Error processing voice input:", error);
+                displayErrorMessage("حدث خطأ أثناء معالجة المدخلات الصوتية. حاول مرة أخرى.");
+            }
+        }
+
+        async function sendChatMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            addMessageToConversation('user', message);
+            messageInput.value = '';
+
+            await processVoiceInput(message);
+        }
+
+        async function extractLocationAndSeverity(conversation) {
+            try {
+                const response = await fetch("https://api.openai.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${apiKeyInput.value.trim()}`
+                    },
+                    body: JSON.stringify({
+                        model: "gpt-3.5-turbo",
+                        messages: [
+                            ...conversation,
+                            { role: "user", content: "استخرج اسم الحي أو المنطقة وخطورة الحادث من المحادثة السابقة. ثم استخدم الموقع المذكور لتحديد الإحداثيات التقريبية له في الرياض. أعط الإجابة بتنسيق JSON يحتوي على name و lat و lon و severity. تأكد من أن الإحداثيات تقع داخل حدود مدينة الرياض." }
+                        ]
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const extractedInfo = JSON.parse(data.choices[0].message.content);
+
+                if (extractedInfo.lat < 24.5 || extractedInfo.lat > 25.5 || extractedInfo.lon < 46 || extractedInfo.lon > 47) {
+                    throw new Error("الإحداثيات خارج نطاق مدينة الرياض");
+                }
+
+                return extractedInfo;
+            } catch (error) {
+                console.error("Error extracting location and severity:", error);
+                displayErrorMessage("حدث خطأ أثناء استخراج بيانات الموقع والخطورة. حاول مرة أخرى.");
+                return null;
+            }
+        }
+
+        function updateMap(lat, lon) {
+            if (map) {
+                map.setCamera({
+                    center: [lon, lat],
+                    zoom: 15
+                });
+                marker.setOptions({
+                    position: [lon, lat],
+                    visible: true
+                });
+                selectedCoordinates = { lat, lon };
+            }
+        }
+
+        function speakResponse(text) {
+            const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(azureSpeechKeyInput.value.trim(), azureSpeechRegionInput.value.trim());
+            speechConfig.speechSynthesisLanguage = "ar-SA";
+            const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
+
+            synthesizer.speakTextAsync(
+                text,
+                result => {
+                    if (result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
+                        console.log("Speech synthesis completed");
+                    } else {
+                        console.error("Speech synthesis canceled, " + result.errorDetails);
+                    }
+                    synthesizer.close();
+                },
+                error => {
+                    console.error("Error synthesizing speech: " + error);
+                    synthesizer.close();
+                }
+            );
+        }
+
+        function addMessageToConversation(role, message) {
+            const messageElement = document.createElement('p');
+            messageElement.className = role === 'user' ? 'user-message' : 'assistant-message';
+            messageElement.textContent = `${role === 'user' ? 'أنت: ' : 'المساعد: '}${message}`;
+            conversationElement.appendChild(messageElement);
+            conversationElement.scrollTop = conversationElement.scrollHeight;
+        }
+
+        function displayErrorMessage(message) {
+            errorMessageElement.textContent = message;
+        }
+
+        function clearErrorMessage() {
+            errorMessageElement.textContent = '';
+        }
+
+        sendButton.addEventListener("click", async () => {
+            if (!detectedLocation || !selectedCoordinates || !accidentSeverity) {
+                displayErrorMessage("يرجى تحديد موقع الحادث وخطورته أولاً.");
+                return;
+            }
+
+            try {
+                const response = await fetch("/generate_accidents", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        location: detectedLocation,
+                        coordinates: selectedCoordinates,
+                        severity: accidentSeverity,
+                        timestamp: new Date().toISOString(),
+                    }),
+                });
+
+                if (response.ok) {
+                    alert("تم إرسال البلاغ بنجاح!");
+                    speakResponse("تم إرسال البلاغ بنجاح! شكراً لاتصالك.");
+                    resetForm();
+                } else {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+            } catch (error) {
+                console.error("Error sending report:", error);
+                displayErrorMessage("حدث خطأ أثناء إرسال البلاغ. حاول مرة أخرى.");
+                speakResponse("حدث خطأ أثناء إرسال البلاغ. يرجى المحاولة مرة أخرى.");
+            }
+        });
+
+        function resetForm() {
+            detectedLocation = "";
+            accidentSeverity = "";
+            selectedCoordinates = null;
+            locationElement.textContent = "الموقع: غير محدد";
+            severityElement.textContent = "خطورة الحادث: غير محددة";
+            sendButton.disabled = true;
+            if (map) {
+                map.setCamera({
+                    center: [46.6753, 24.7136],
+                    zoom: 11
+                });
+                marker.setOptions({
+                    visible: false
+                });
+            }
+            conversationElement.innerHTML = '';
+            conversationHistory = [
+                { role: "system", content: "أنت موظف في مركز اتصال للإبلاغ عن الحوادث في الرياض. مهمتك هي الرد على المتصل بلطف، وجمع معلومات عن موقع الحادث وخطورته، ثم تحديد الحي أو المنطقة بدقة. استخدم لهجة رسمية ومهنية. اطلب من المتصل تحديد موقع الحادث وخطورته." }
+            ];
+            clearErrorMessage();
+        }
+
+        window.onload = () => {
+            initMap();
+            initSpeechRecognizer();
+        };
     </script>
 </body>
 
