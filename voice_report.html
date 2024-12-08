@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>مركز الاتصال للإبلاغ عن حادث</title>
+    <title>Call Center for Reporting an Incident</title>
     <script src="https://atlas.microsoft.com/sdk/javascript/mapcontrol/2/atlas.min.js"></script>
     <link rel="stylesheet" href="https://atlas.microsoft.com/sdk/javascript/mapcontrol/2/atlas.min.css" type="text/css">
     <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
@@ -137,31 +137,31 @@
 
 <body>
     <div class="container">
-        <h1>مركز الاتصال للإبلاغ عن حادث</h1>
-        <input type="text" id="apiKeyInput" placeholder="أدخل مفتاح API الخاص بك هنا" />
-        <input type="text" id="azureMapKeyInput" placeholder="أدخل مفتاح Azure Maps هنا" />
-        <input type="text" id="azureSpeechKeyInput" placeholder="أدخل مفتاح Azure Speech هنا" />
-        <input type="text" id="azureSpeechRegionInput" placeholder="أدخل منطقة Azure Speech هنا" />
+        <h1>Call Center for Reporting an Incident</h1>
+        <input type="text" id="apiKeyInput" placeholder="OpenAI API Key" />
+        <input type="text" id="azureMapKeyInput" placeholder="Azure Maps API Key" />
+        <input type="text" id="azureSpeechKeyInput" placeholder="Azure Speech API Key" />
+        <input type="text" id="azureSpeechRegionInput" placeholder="Azure Speech Region" />
         <div>
-            <button class="tab-button active" id="voiceTab">صوت</button>
-            <button class="tab-button" id="chatTab">محادثة</button>
+            <button class="tab-button active" id="voiceTab">Voice</button>
+            <button class="tab-button" id="chatTab">Chat</button>
         </div>
         <div id="voiceInput">
-            <p>انقر على زر التسجيل للتحدث مع مركز الاتصال.</p>
-            <button id="recordButton">بدء المكالمة</button>
+            <p>Click on the Record button to speak with the call center.</p>
+            <button id="recordButton">Start call</button>
         </div>
         <div id="chatInput" style="display: none;">
-            <textarea id="messageInput" placeholder="اكتب رسالتك هنا" rows="3"></textarea>
-            <button id="sendMessage">إرسال</button>
+            <textarea id="messageInput" placeholder="Type your message here" rows="3"></textarea>
+            <button id="sendMessage">Send</button>
         </div>
         <div id="errorMessage"></div>
         <div id="map"></div>
         <div id="conversation"></div>
-        <button id="sendReport" disabled>إرسال البلاغ</button>
+        <button id="sendReport" disabled>Submit report</button>
         <div class="output" id="reportDetails">
-            <strong>تفاصيل البلاغ:</strong>
-            <p id="location">الموقع: غير محدد</p>
-            <p id="severity">خطورة الحادث: غير محددة</p>
+            <strong>Report details:</strong>
+            <p id="location">Location: Not specified</p>
+            <p id="severity">Accident severity: Undetermined</p>
         </div>
     </div>
 
@@ -188,7 +188,7 @@
         let selectedCoordinates = null;
         let isRecording = false;
         let conversationHistory = [
-            { role: "system", content: "أنت موظف في مركز اتصال للإبلاغ عن الحوادث في الرياض. مهمتك هي الرد على المتصل بلطف، وجمع معلومات عن موقع الحادث وخطورته، ثم تحديد الحي أو المنطقة بدقة. استخدم لهجة رسمية ومهنية. اطلب من المتصل تحديد موقع الحادث وخطورته." }
+            { role: "system", content: "You are an employee at a call center for reporting incidents in Riyadh. Your task is to politely respond to the caller, gather information about the incident location and severity, then accurately determine the neighborhood or area. Use a formal and professional tone. Ask the caller to specify the incident location and severity." }
         ];
 
         let map, marker;
@@ -197,14 +197,14 @@
         function initMap() {
             const azureMapKey = azureMapKeyInput.value.trim();
             if (!azureMapKey) {
-                displayErrorMessage('يرجى إدخال مفتاح Azure Maps أولاً.');
+                displayErrorMessage('Please enter the Azure Maps API key first.');
                 return;
             }
 
             map = new atlas.Map('map', {
                 center: [46.6753, 24.7136],
                 zoom: 11,
-                language: 'ar-SA',
+                language: 'en-US',
                 authOptions: {
                     authType: 'subscriptionKey',
                     subscriptionKey: azureMapKey
@@ -228,12 +228,12 @@
             const speechRegion = azureSpeechRegionInput.value.trim();
 
             if (!speechKey || !speechRegion) {
-                displayErrorMessage('يرجى إدخال مفتاح Azure Speech والمنطقة أولاً.');
+                displayErrorMessage('Please enter the Azure Speech API key and region first.');
                 return;
             }
 
             const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(speechKey, speechRegion);
-            speechConfig.speechRecognitionLanguage = "ar-SA";
+            speechConfig.speechRecognitionLanguage = "en-US";
 
             const audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
             recognizer = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
@@ -300,31 +300,31 @@
 
         function startRecording() {
             if (!apiKeyInput.value.trim()) {
-                displayErrorMessage('يرجى إدخال مفتاح API أولاً.');
+                displayErrorMessage('Please enter the API key first.');
                 return;
             }
             if (!azureMapKeyInput.value.trim()) {
-                displayErrorMessage('يرجى إدخال مفتاح Azure Maps أولاً.');
+                displayErrorMessage('Please enter the Azure Maps API key first.');
                 return;
             }
             if (!azureSpeechKeyInput.value.trim() || !azureSpeechRegionInput.value.trim()) {
-                displayErrorMessage('يرجى إدخال مفتاح Azure Speech والمنطقة أولاً.');
+                displayErrorMessage('Please enter the Azure Speech API key and region first.');
                 return;
             }
             try {
                 recognizer.startContinuousRecognitionAsync();
                 isRecording = true;
-                recordButton.textContent = "إنهاء المكالمة";
+                recordButton.textContent = "End call";
                 recordButton.classList.add("recording");
                 conversationHistory = [
-                    { role: "system", content: "أنت موظف في مركز اتصال للإبلاغ عن الحوادث في الرياض. مهمتك هي الرد على المتصل بلطف، وجمع معلومات عن موقع الحادث وخطورته، ثم تحديد الحي أو المنطقة بدقة. استخدم لهجة رسمية ومهنية. اطلب من المتصل تحديد موقع الحادث وخطورته." }
+                    { role: "system", content: "You are an employee at a call center for reporting incidents in Riyadh. Your task is to politely respond to the caller, gather information about the incident location and severity, then accurately determine the neighborhood or area. Use a formal and professional tone. Ask the caller to specify the incident location and severity." }
                 ];
                 conversationElement.innerHTML = '';
                 clearErrorMessage();
-                processVoiceInput("مرحبا");
+                processVoiceInput("Hello");
             } catch (error) {
                 console.error("Error starting recording:", error);
-                displayErrorMessage('حدث خطأ أثناء بدء التسجيل. حاول مرة أخرى.');
+                displayErrorMessage('An error occurred while starting the recording. Please try again.');
             }
         }
 
@@ -332,11 +332,11 @@
             try {
                 recognizer.stopContinuousRecognitionAsync();
                 isRecording = false;
-                recordButton.textContent = "بدء المكالمة";
+                recordButton.textContent = "Start call";
                 recordButton.classList.remove("recording");
             } catch (error) {
                 console.error("Error stopping recording:", error);
-                displayErrorMessage('حدث خطأ أثناء إيقاف التسجيل. حاول مرة أخرى.');
+                displayErrorMessage('An error occurred while stopping the recording. Please try again.');
             }
         }
 
@@ -373,13 +373,13 @@
                     updateMap(extractedInfo.lat, extractedInfo.lon);
                     detectedLocation = extractedInfo.name;
                     accidentSeverity = extractedInfo.severity;
-                    locationElement.textContent = `الموقع المحدد: ${extractedInfo.name}`;
-                    severityElement.textContent = `خطورة الحادث: ${extractedInfo.severity}`;
+                    locationElement.textContent = `Location: ${extractedInfo.name}`;
+                    severityElement.textContent = `Accident severity: ${extractedInfo.severity}`;
                     sendButton.disabled = false;
                 }
             } catch (error) {
                 console.error("Error processing voice input:", error);
-                displayErrorMessage("حدث خطأ أثناء معالجة المدخلات الصوتية. حاول مرة أخرى.");
+                displayErrorMessage("An error occurred while processing voice input. Please try again.");
             }
         }
 
@@ -405,7 +405,7 @@
                         model: "gpt-3.5-turbo",
                         messages: [
                             ...conversation,
-                            { role: "user", content: "استخرج اسم الحي أو المنطقة وخطورة الحادث من المحادثة السابقة. ثم استخدم الموقع المذكور لتحديد الإحداثيات التقريبية له في الرياض. أعط الإجابة بتنسيق JSON يحتوي على name و lat و lon و severity. تأكد من أن الإحداثيات تقع داخل حدود مدينة الرياض." }
+                            { role: "user", content: "Extract the neighborhood or area name and incident severity from the previous conversation. Then use the mentioned location to determine its approximate coordinates in Riyadh. Give the answer in JSON format containing name, lat, lon, and severity. Make sure the coordinates are within the boundaries of Riyadh city." }
                         ]
                     })
                 });
@@ -418,13 +418,13 @@
                 const extractedInfo = JSON.parse(data.choices[0].message.content);
 
                 if (extractedInfo.lat < 24.5 || extractedInfo.lat > 25.5 || extractedInfo.lon < 46 || extractedInfo.lon > 47) {
-                    throw new Error("الإحداثيات خارج نطاق مدينة الرياض");
+                    throw new Error("Coordinates are outside the range of Riyadh city");
                 }
 
                 return extractedInfo;
             } catch (error) {
                 console.error("Error extracting location and severity:", error);
-                displayErrorMessage("حدث خطأ أثناء استخراج بيانات الموقع والخطورة. حاول مرة أخرى.");
+                displayErrorMessage("An error occurred while extracting location and severity data. Please try again.");
                 return null;
             }
         }
@@ -445,7 +445,7 @@
 
         function speakResponse(text) {
             const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(azureSpeechKeyInput.value.trim(), azureSpeechRegionInput.value.trim());
-            speechConfig.speechSynthesisLanguage = "ar-SA";
+            speechConfig.speechSynthesisLanguage = "en-US";
             const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
 
             synthesizer.speakTextAsync(
@@ -468,7 +468,7 @@
         function addMessageToConversation(role, message) {
             const messageElement = document.createElement('p');
             messageElement.className = role === 'user' ? 'user-message' : 'assistant-message';
-            messageElement.textContent = `${role === 'user' ? 'أنت: ' : 'المساعد: '}${message}`;
+            messageElement.textContent = `${role === 'user' ? 'You: ' : 'Assistant: '}${message}`;
             conversationElement.appendChild(messageElement);
             conversationElement.scrollTop = conversationElement.scrollHeight;
         }
@@ -483,7 +483,7 @@
 
         sendButton.addEventListener("click", async () => {
             if (!detectedLocation || !selectedCoordinates || !accidentSeverity) {
-                displayErrorMessage("يرجى تحديد موقع الحادث وخطورته أولاً.");
+                displayErrorMessage("Please specify the incident location and severity first.");
                 return;
             }
 
@@ -502,16 +502,16 @@
                 });
 
                 if (response.ok) {
-                    alert("تم إرسال البلاغ بنجاح!");
-                    speakResponse("تم إرسال البلاغ بنجاح! شكراً لاتصالك.");
+                    alert("Report sent successfully!");
+                    speakResponse("The report has been sent successfully! Thank you for your call.");
                     resetForm();
                 } else {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
             } catch (error) {
                 console.error("Error sending report:", error);
-                displayErrorMessage("حدث خطأ أثناء إرسال البلاغ. حاول مرة أخرى.");
-                speakResponse("حدث خطأ أثناء إرسال البلاغ. يرجى المحاولة مرة أخرى.");
+                displayErrorMessage("An error occurred while sending the report. Please try again.");
+                speakResponse("An error occurred while sending the report. Please try again.");
             }
         });
 
@@ -519,8 +519,8 @@
             detectedLocation = "";
             accidentSeverity = "";
             selectedCoordinates = null;
-            locationElement.textContent = "الموقع: غير محدد";
-            severityElement.textContent = "خطورة الحادث: غير محددة";
+            locationElement.textContent = "Location: Not specified";
+            severityElement.textContent = "Accident severity: Undetermined";
             sendButton.disabled = true;
             if (map) {
                 map.setCamera({
@@ -533,7 +533,7 @@
             }
             conversationElement.innerHTML = '';
             conversationHistory = [
-                { role: "system", content: "أنت موظف في مركز اتصال للإبلاغ عن الحوادث في الرياض. مهمتك هي الرد على المتصل بلطف، وجمع معلومات عن موقع الحادث وخطورته، ثم تحديد الحي أو المنطقة بدقة. استخدم لهجة رسمية ومهنية. اطلب من المتصل تحديد موقع الحادث وخطورته." }
+                { role: "system", content: "You are an employee at a call center for reporting incidents in Riyadh. Your task is to politely respond to the caller, gather information about the incident location and severity, then accurately determine the neighborhood or area. Use a formal and professional tone. Ask the caller to specify the incident location and severity." }
             ];
             clearErrorMessage();
         }
